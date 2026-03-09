@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head>
+	<title>Test</title>
+	<link rel="icon" href="data:," />
+	<script type="module">
+		const memory = new WebAssembly.Memory({ initial: 1000 })
+
+		const table = new WebAssembly.Table({ initial: 1000, element: 'externref' })
+
+		const i32 = new Int32Array(memory.buffer)
+
+		const { module: _, instance } = await WebAssembly.instantiateStreaming(fetch("test.wasm"), {
+			env: {
+				memory,
+				table,
+				encode: (array) => {
+					for (const [index, item] of array.entries()) {
+						table.set(index, item)
+					}
+				},
+				decode: (length) => {
+					const array = new Array(length)
+
+					for (let arrayIndex = 0; arrayIndex < length; arrayIndex++) {
+						const elemIndex = i32[arrayIndex]
+						array[arrayIndex] = table.get(elemIndex)
+					}
+
+					return array
+				},
+				arrayNew: (length) => new Array(length),
+				arrayGet: (array, index) => array[index],
+				arraySet: (array, index, value) => array[index] = value,
+			}
+		});
+
+		const run = (name, length, encode, decode) => {
+			const array = Array.from(Array(length), (_, index) => index)
+			const start = performance.now()
+
+			for (let i = 0; i < 10_000; i++) {
+				table.set(0, array)
+				encode(length)
+				decode(length)
+			}
+
+			const end = performance.now();
+
+			if (JSON.stringify(array) !== JSON.stringify(table.get(0)))
+				throw 'array doesn\'t match'
+
+			const duratoin = ((end - start) / 10).toFixed(2)
+			console.log(`${name}: ${duratoin}µs`)
+		}
+
+		run('JS', 1000, instance.exports.encodeJs, instance.exports.decodeJs)
+		run('Wasm', 1000, instance.exports.encodeWasm, instance.exports.decodeWasm)
+	</script>
+</head>
+<body></body>
+</html>
